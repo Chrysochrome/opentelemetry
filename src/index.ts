@@ -4,6 +4,7 @@ import {
 	context as otelContext,
 	propagation,
 	SpanStatusCode,
+	SpanKind,
 	type ContextManager,
 	type Context,
 	type SpanOptions,
@@ -133,30 +134,42 @@ export const getTracer = (): ReturnType<TraceAPI['getTracer']> => {
 	return {
 		...tracer,
 		startSpan(name: string, options?: SpanOptions, context?: Context) {
-			return tracer.startSpan(name, options, context)
+			return tracer.startSpan(name, {
+				...options,
+				kind: options?.kind || SpanKind.INTERNAL, // 默认设置为 INTERNAL
+			}, context)
 		},
 		startActiveSpan(...args: ActiveSpanArgs) {
 			switch (args.length) {
 				case 2:
 					return tracer.startActiveSpan(
 						args[0],
+						{
+							kind: SpanKind.INTERNAL, // 默认设置为 INTERNAL
+						},
 						createActiveSpanHandler(args[1])
-					)
+					);
 
 				case 3:
 					return tracer.startActiveSpan(
 						args[0],
-						args[1],
+						{
+							...args[1],
+							kind: args[1]?.kind || SpanKind.INTERNAL, // 支持传入 kind
+						},
 						createActiveSpanHandler(args[2])
-					)
+					);
 
 				case 4:
 					return tracer.startActiveSpan(
 						args[0],
-						args[1],
+						{
+							...args[1],
+							kind: args[1]?.kind || SpanKind.INTERNAL, // 支持传入 kind
+						},
 						args[2],
 						createActiveSpanHandler(args[3])
-					)
+					);
 			}
 		}
 	}
@@ -269,14 +282,16 @@ export const opentelemetry = ({
 		name: '@elysia/opentelemetry'
 	})
 		.wrap((fn, request) => {
-			const ctx = propagation.extract(otelContext.active(), request)
+			const ctx = propagation.extract(otelContext.active(), request);
 
 			return tracer.startActiveSpan(
 				'request',
-				{},
+				{
+					kind: SpanKind.SERVER, // 显式设置为 SERVER
+				},
 				propagation.extract(otelContext.active(), request),
 				(rootSpan) => otelContext.bind(trace.setSpan(ctx, rootSpan), fn)
-			)
+			);
 		})
 		.trace(
 			{ as: 'global' },
@@ -328,7 +343,9 @@ export const opentelemetry = ({
 
 						tracer.startActiveSpan(
 							name,
-							{},
+							{
+								kind: SpanKind.INTERNAL, // 显式设置为 INTERNAL（进程内调用）
+							},
 							createContext(rootSpan),
 							(event) => {
 								onEvent(({ name, onStop }) => {
@@ -457,7 +474,9 @@ export const opentelemetry = ({
 				onHandle(({ onStop }) => {
 					const span = tracer.startSpan(
 						'handle',
-						{},
+						{
+							kind: SpanKind.INTERNAL, // 显式设置为 INTERNAL
+						},
 						createContext(rootSpan)
 					)
 
